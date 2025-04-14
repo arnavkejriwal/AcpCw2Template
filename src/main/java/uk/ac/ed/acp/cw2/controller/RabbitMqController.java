@@ -1,97 +1,110 @@
 package uk.ac.ed.acp.cw2.controller;
 
-
-import com.rabbitmq.client.DeliverCallback;
-import org.apache.kafka.clients.producer.ProducerRecord;
+import com.rabbitmq.client.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import uk.ac.ed.acp.cw2.data.RuntimeEnvironment;
-import com.rabbitmq.client.Channel;
-import com.rabbitmq.client.Connection;
-import com.rabbitmq.client.ConnectionFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.*;
 
-/**
- * RabbitMqController is a REST controller that provides endpoints for sending and receiving stock symbols
- * through RabbitMQ. This class interacts with a RabbitMQ environment which is configured dynamically during runtime.
- */
-@RestController()
-@RequestMapping("/api/v1/rabbitmq")
+@RestController
 public class RabbitMqController {
 
     private static final Logger logger = LoggerFactory.getLogger(RabbitMqController.class);
-    private final RuntimeEnvironment environment;
-    private final String[] stockSymbols = "AAPL,MSFT,GOOG,AMZN,TSLA,JPMC,CATP,UNIL,LLOY".split(",");
+    private static final String STUDENT_ID = "s2795419"; // Replace with your ID
 
-    private ConnectionFactory factory = null;
+    private final ConnectionFactory factory;
+    private final RuntimeEnvironment environment;
 
     public RabbitMqController(RuntimeEnvironment environment) {
         this.environment = environment;
-        factory = new ConnectionFactory();
+        this.factory = new ConnectionFactory();
         factory.setHost(environment.getRabbitMqHost());
         factory.setPort(environment.getRabbitMqPort());
     }
 
-
-    public final String StockSymbolsConfig = "stock.symbols";
-
-    @PostMapping("/sendStockSymbols/{queueName}/{symbolCount}")
-    public void sendStockSymbols(@PathVariable String queueName, @PathVariable int symbolCount) {
-        logger.info("Writing {} symbols in queue {}", symbolCount, queueName);
+    @PutMapping("/rabbitMq/{queueName}/{messageCount}")
+    public ResponseEntity<Void> sendMessages(
+            @PathVariable String queueName,
+            @PathVariable int messageCount
+    ) {
+        logger.info("Writing {} messages to queue {}", messageCount, queueName);
 
         try (Connection connection = factory.newConnection();
              Channel channel = connection.createChannel()) {
 
             channel.queueDeclare(queueName, false, false, false, null);
 
-            for (int i = 0; i < symbolCount; i++) {
-                final String symbol = stockSymbols[new Random().nextInt(stockSymbols.length)];
-                final String value = String.valueOf(i);
-
-                String message = String.format("%s:%s", symbol, value);
-
+            for (int counter = 0; counter < messageCount; counter++) {
+                String message = String.format(
+                        "{\"uid\": \"%s\", \"counter\": %d}",
+                        STUDENT_ID, counter
+                );
                 channel.basicPublish("", queueName, null, message.getBytes());
-                System.out.println(" [x] Sent message: " + message + " to queue: " + queueName);
+                logger.debug("Published message: {}", message);
             }
 
-            logger.info("{} record(s) sent to Kafka\n", symbolCount);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+            return ResponseEntity.ok().build();
+
+        } catch (IOException | TimeoutException e) {
+            logger.error("RabbitMQ write failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError().build();
         }
     }
 
-    @GetMapping("/receiveStockSymbols/{queueName}/{consumeTimeMsec}")
-    public List<String> receiveStockSymbols(@PathVariable String queueName, @PathVariable int consumeTimeMsec) {
-        logger.info(String.format("Reading stock-symbols from queue %s", queueName));
-        List<String> result = new ArrayList<>();
+    @GetMapping("/rabbitMq/{queueName}/{timeoutInMsec}")
+    public List<String> getMessages(
+            @PathVariable String queueName,
+            @PathVariable int timeoutInMsec
+    ) {
+        logger.info("Reading from queue {} with {}ms timeout", queueName, timeoutInMsec);
+        final List<String> messages = Collections.synchronizedList(new ArrayList<>());
+        final long startTime = System.currentTimeMillis();
 
         try (Connection connection = factory.newConnection();
              Channel channel = connection.createChannel()) {
 
+            channel.queueDeclare(queueName, false, false, false, null);
 
             DeliverCallback deliverCallback = (consumerTag, delivery) -> {
-                String message = new String(delivery.getBody(), StandardCharsets.UTF_8);
-                System.out.printf("[%s]:%s -> %s", queueName, delivery.getEnvelope().getRoutingKey(), message);
-                result.add(message);
+                messages.add(new String(delivery.getBody(), StandardCharsets.UTF_8));
+                logger.debug("Received message: {}", delivery.getBody());
             };
 
-            System.out.println("start consuming events - to stop press CTRL+C");
-            // Consume with Auto-ACK
-            channel.basicConsume(queueName, true, deliverCallback, consumerTag -> {});
-            Thread.sleep(consumeTimeMsec);
+            String consumerTag = channel.basicConsume(queueName, true, deliverCallback, ct -> {});
 
-            System.out.printf("done consuming events. %d record(s) received\n", result.size());
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+            // Precise timeout handling (max timeoutInMsec + 200ms)
+            while ((System.currentTimeMillis() - startTime) < (timeoutInMsec + 200)) {
+                Thread.sleep(50); // Reduced polling interval
+            }
+
+        } catch (IOException | TimeoutException | InterruptedException e) {
+            logger.error("RabbitMQ read failed: {}", e.getMessage());
+            return Collections.emptyList();
         }
 
-        return result;
+        logger.info("Returning {} messages from queue {}", messages.size(), queueName);
+        return new ArrayList<>(messages);
+    }
+
+    // Helper method used by ServiceController
+    public void sendToQueue(String queueName, String message) {
+        try (Connection connection = factory.newConnection();
+             Channel channel = connection.createChannel()) {
+
+            channel.queueDeclare(queueName, false, false, false, null);
+            channel.basicPublish("", queueName, null, message.getBytes());
+
+        } catch (IOException | TimeoutException e) {
+            logger.error("Failed to send message to {}: {}", queueName, e.getMessage());
+            throw new RuntimeException("RabbitMQ write failed", e);
+        }
     }
 }
