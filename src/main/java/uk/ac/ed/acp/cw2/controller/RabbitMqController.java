@@ -9,9 +9,7 @@ import uk.ac.ed.acp.cw2.data.RuntimeEnvironment;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.*;
 
 @RestController
@@ -33,22 +31,28 @@ public class RabbitMqController {
     @PutMapping("/rabbitMq/{queueName}/{messageCount}")
     public ResponseEntity<Void> sendMessages(
             @PathVariable String queueName,
-            @PathVariable int messageCount
+            @PathVariable int messageCount,
+            @RequestBody(required = false) String customMessage
     ) {
-        logger.info("Writing {} messages to queue {}", messageCount, queueName);
+        logger.info("PUT /rabbitMq/{}/{}", queueName, messageCount);
 
         try (Connection connection = factory.newConnection();
              Channel channel = connection.createChannel()) {
 
-            channel.queueDeclare(queueName, false, false, false, null);
+            // Declare queue with no max-length policy
+            Map<String, Object> args = new HashMap<>();
+            channel.queueDeclare(queueName, false, false, false, args);
 
             for (int counter = 0; counter < messageCount; counter++) {
-                String message = String.format(
+                String message = (customMessage != null)
+                        ? customMessage
+                        : String.format(
                         "{\"uid\": \"%s\", \"counter\": %d}",
                         STUDENT_ID, counter
                 );
+
                 channel.basicPublish("", queueName, null, message.getBytes());
-                logger.debug("Published message: {}", message);
+                logger.debug("Sent message: {}", message);
             }
 
             return ResponseEntity.ok().build();
@@ -106,5 +110,36 @@ public class RabbitMqController {
             logger.error("Failed to send message to {}: {}", queueName, e.getMessage());
             throw new RuntimeException("RabbitMQ write failed", e);
         }
+    }
+
+    public List<String> readMessagesForTransform(String queueName, int messageCount) {
+        List<String> messages = new ArrayList<>();
+        long startTime = System.currentTimeMillis();
+
+        try (Connection connection = factory.newConnection();
+             Channel channel = connection.createChannel()) {
+
+            channel.queueDeclare(queueName, false, false, false, null);
+            DeliverCallback deliverCallback = (consumerTag, delivery) -> {
+                synchronized (messages) {
+                    if (messages.size() < messageCount) {
+                        messages.add(new String(delivery.getBody(), StandardCharsets.UTF_8));
+                        channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+                    }
+                }
+            };
+
+            channel.basicConsume(queueName, false, deliverCallback, consumerTag -> {});
+
+            // Wait with timeout (5 seconds)
+            while (messages.size() < messageCount &&
+                    (System.currentTimeMillis() - startTime) < 5000) {
+                Thread.sleep(50);
+            }
+
+        } catch (Exception e) {
+            logger.error("Failed to read messages: {}", e.getMessage());
+        }
+        return messages;
     }
 }
