@@ -35,8 +35,6 @@ public class ServiceController {
         this.environment = environment;
     }
 
-    // ==================== Existing Endpoints ====================
-
     @GetMapping("/")
     public String index() {
         StringBuilder envVars = new StringBuilder("<ul>");
@@ -81,8 +79,6 @@ public class ServiceController {
         return ResponseEntity.ok().build();
     }
 
-    // ==================== Transform Messages Endpoint ====================
-
     @PostMapping("/transformMessages")
     public ResponseEntity<Void> transformMessages(@RequestBody TransformMessagesRequest request) {
         List<String> messages = rabbitMqController.readMessagesForTransform(
@@ -109,8 +105,6 @@ public class ServiceController {
         return ResponseEntity.ok().build();
     }
 
-    // ==================== Shared Helper Methods ====================
-
     private void sendTotalMessage(String queueName, double total) {
         String message = String.format(
                 "{\"uid\": \"%s\", \"key\": \"TOTAL\", \"value\": %.2f, \"comment\": \"\"}",
@@ -123,8 +117,6 @@ public class ServiceController {
         int length = key.length();
         return length == 3 || length == 4;
     }
-
-    // ==================== Process Messages Helpers ====================
 
     private void processGoodMessage(JsonNode message, String queue, AtomicReference<Double> total)
             throws IOException {
@@ -147,8 +139,6 @@ public class ServiceController {
             logger.error("Invalid bad message: {}", rawMessage);
         }
     }
-
-    // ==================== Transform Messages Helpers ====================
 
     private void processTransformMessage(
             String rawMessage,
@@ -196,18 +186,17 @@ public class ServiceController {
     ) {
         String key = message.get("key").asText();
         redisController.deleteKey(key);
-        redisUpdates.incrementAndGet();  // Count the deletion as an update
+        redisUpdates.incrementAndGet();
 
-        // Send summary message
         ObjectNode summary = mapper.createObjectNode()
                 .put("totalMessagesProcessed", totalProcessed.get())
-                .put("totalMessagesWritten", totalWritten.get() + 1)  // +1 for the tombstone summary
+                .put("totalMessagesWritten", totalWritten.get() + 1)
                 .put("totalRedisUpdates", redisUpdates.get())
                 .put("totalValueWritten", totalValue.get())
                 .put("totalAdded", totalAdded.get());
 
         rabbitMqController.sendToQueue(writeQueue, summary.toString());
-        totalWritten.incrementAndGet();  // Track the summary message
+        totalWritten.incrementAndGet();
     }
 
     private void handleNormalMessage(
@@ -226,10 +215,10 @@ public class ServiceController {
             Integer storedVersion = redisController.getVersion(key);
             if (storedVersion == null || version > storedVersion) {
                 processNewVersion(message, writeQueue, key, version, value, redisUpdates, totalAdded);
-                totalValue.set(totalValue.get() + value + 10.5);  // Include +10.5 in totalValue
+                totalValue.set(totalValue.get() + value + 10.5);
             } else {
                 rabbitMqController.sendToQueue(writeQueue, message.toString());
-                totalValue.set(totalValue.get() + value);  // Original value for old versions
+                totalValue.set(totalValue.get() + value);
             }
             totalWritten.incrementAndGet();
         } catch (Exception e) {
@@ -246,13 +235,13 @@ public class ServiceController {
             AtomicInteger redisUpdates,
             AtomicReference<Double> totalAdded
     ) throws IOException {
-        double newValue = value + 10.5;  // Add 10.5 to the value
+        double newValue = value + 10.5;
         ObjectNode modified = ((ObjectNode) message).put("value", newValue);
 
         redisController.setVersion(key, version);
         rabbitMqController.sendToQueue(writeQueue, modified.toString());
 
-        totalAdded.set(totalAdded.get() + 10.5);  // Track the +10.5
-        redisUpdates.incrementAndGet();           // Count the Redis update
+        totalAdded.set(totalAdded.get() + 10.5);
+        redisUpdates.incrementAndGet();
     }
 }

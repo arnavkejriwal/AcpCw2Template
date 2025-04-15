@@ -20,15 +20,13 @@ import java.util.stream.Collectors;
 public class KafkaController {
 
     private static final Logger logger = LoggerFactory.getLogger(KafkaController.class);
-    private static final String STUDENT_ID = "s2795419"; // Use your student ID
+    private static final String STUDENT_ID = "s2795419";
 
     private final RuntimeEnvironment environment;
 
     public KafkaController(RuntimeEnvironment environment) {
         this.environment = environment;
     }
-
-    // ==================== PUBLIC ENDPOINTS ====================
 
     @PutMapping("/kafka/{writeTopic}/{messageCount}")
     public ResponseEntity<Void> sendMessagesToKafka(
@@ -61,8 +59,6 @@ public class KafkaController {
         return readMessagesWithTimeout(readTopic, timeoutInMsec);
     }
 
-    // ==================== SERVICE METHODS ====================
-
     public List<String> readMessagesFromKafka(String topic, int messageCount) {
         List<String> messages = new ArrayList<>();
         int maxAttempts = 10;
@@ -84,8 +80,6 @@ public class KafkaController {
         }
         return messages;
     }
-
-    // ==================== HELPER METHODS ====================
 
     private Properties getProducerConfig() {
         Properties props = new Properties();

@@ -16,7 +16,7 @@ import java.util.concurrent.*;
 public class RabbitMqController {
 
     private static final Logger logger = LoggerFactory.getLogger(RabbitMqController.class);
-    private static final String STUDENT_ID = "s2795419"; // Replace with your ID
+    private static final String STUDENT_ID = "s2795419";
 
     private final ConnectionFactory factory;
     private final RuntimeEnvironment environment;
@@ -39,7 +39,6 @@ public class RabbitMqController {
         try (Connection connection = factory.newConnection();
              Channel channel = connection.createChannel()) {
 
-            // Declare queue with no max-length policy
             Map<String, Object> args = new HashMap<>();
             channel.queueDeclare(queueName, false, false, false, args);
 
@@ -84,7 +83,6 @@ public class RabbitMqController {
 
             String consumerTag = channel.basicConsume(queueName, true, deliverCallback, ct -> {});
 
-            // Precise timeout handling (max timeoutInMsec + 200ms)
             while ((System.currentTimeMillis() - startTime) < (timeoutInMsec + 200)) {
                 Thread.sleep(50); // Reduced polling interval
             }
@@ -98,7 +96,6 @@ public class RabbitMqController {
         return new ArrayList<>(messages);
     }
 
-    // Helper method used by ServiceController
     public void sendToQueue(String queueName, String message) {
         try (Connection connection = factory.newConnection();
              Channel channel = connection.createChannel()) {
@@ -131,7 +128,6 @@ public class RabbitMqController {
 
             channel.basicConsume(queueName, false, deliverCallback, consumerTag -> {});
 
-            // Wait with timeout (5 seconds)
             while (messages.size() < messageCount &&
                     (System.currentTimeMillis() - startTime) < 5000) {
                 Thread.sleep(50);

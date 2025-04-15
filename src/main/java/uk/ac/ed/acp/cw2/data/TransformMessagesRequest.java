@@ -5,7 +5,6 @@ public class TransformMessagesRequest {
     private String writeQueue;
     private int messageCount;
 
-    // Getters and setters
     public String getReadQueue() { return readQueue; }
     public void setReadQueue(String readQueue) { this.readQueue = readQueue; }
     public String getWriteQueue() { return writeQueue; }

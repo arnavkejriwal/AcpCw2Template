@@ -8,8 +8,8 @@ import redis.clients.jedis.JedisPool;
 import uk.ac.ed.acp.cw2.data.RuntimeEnvironment;
 
 @RestController
-@RequestMapping("/api/v1/redis")  // Changed endpoint path
-public class RedisController {     // Renamed class
+@RequestMapping("/api/v1/redis")
+public class RedisController {
 
     private static final Logger logger = LoggerFactory.getLogger(RedisController.class);
     private final JedisPool jedisPool;
@@ -22,8 +22,6 @@ public class RedisController {     // Renamed class
                 environment.getRedisPort()
         );
     }
-
-    // ==================== ASSIGNMENT-REQUIRED METHODS ====================
 
     public Integer getVersion(String key) {
         try (Jedis jedis = jedisPool.getResource()) {
@@ -43,8 +41,6 @@ public class RedisController {     // Renamed class
             jedis.del(key);
         }
     }
-
-    // ==================== EXISTING ENDPOINTS (PRESERVED) ====================
 
     @GetMapping("/cache/{cacheKey}")
     public String retrieveFromCache(@PathVariable String cacheKey) {
